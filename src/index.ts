@@ -500,6 +500,326 @@ function registerCrudTools(prefix: string, path: string, label: string, allowDel
   }
 }
 
+// ─── Remaining Support non-binary tools ────────────────────
+
+server.tool(
+  'bulk_update_tickets',
+  'Run a bulk ticket action. Requires confirmation.',
+  {
+    data: jsonRecord.describe('Bulk action payload'),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ data, confirm }) => {
+    requireConfirmation(confirm, 'running a bulk ticket action')
+    return call('POST', '/tickets/bulk', data)
+  },
+)
+
+server.tool('list_ticket_reports', 'List generated ticket reports.', { ...pagination }, async (params) => call('GET', '/tickets/reports', undefined, params))
+
+server.tool(
+  'create_ticket_report',
+  'Create a ticket report. Requires confirmation because it may process/export sensitive data.',
+  { data: jsonRecord.describe('Report payload'), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+  async ({ data, confirm }) => {
+    requireConfirmation(confirm, 'creating a ticket report')
+    return call('POST', '/tickets/report', data)
+  },
+)
+
+for (const [toolName, segment, actionLabel] of [
+  ['archive_ticket', 'archive', 'archiving a ticket'],
+  ['unarchive_ticket', 'unarchive', 'unarchiving a ticket'],
+  ['restore_independent_ticket', 'restore-independent', 'restoring ticket independence'],
+  ['duplicate_ticket', 'duplicate', 'duplicating a ticket'],
+  ['duplicate_link_ticket', 'duplicate-link', 'linking a duplicate ticket'],
+  ['merge_ticket', 'merge', 'merging a ticket'],
+  ['split_ticket', 'split', 'splitting a ticket'],
+] as const) {
+  server.tool(
+    toolName,
+    `${actionLabel}. Requires confirmation.`,
+    {
+      ticket_uuid: uuid.describe('Ticket UUID'),
+      data: jsonRecord.optional().describe('Optional action payload'),
+      confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+    },
+    async ({ ticket_uuid, data, confirm }) => {
+      assertTicket(ticket_uuid)
+      requireConfirmation(confirm, actionLabel)
+      return call('POST', `/tickets/${ticket_uuid}/${segment}`, data ?? {})
+    },
+  )
+}
+
+server.tool('list_ticket_merge_candidates', 'List merge candidates for a ticket.', { ticket_uuid: uuid.describe('Ticket UUID'), ...pagination }, async ({ ticket_uuid, ...params }) => {
+  assertTicket(ticket_uuid)
+  return call('GET', `/tickets/${ticket_uuid}/merge-candidates`, undefined, params)
+})
+
+server.tool('list_ticket_duplicate_candidates', 'List duplicate candidates for a ticket.', { ticket_uuid: uuid.describe('Ticket UUID'), ...pagination }, async ({ ticket_uuid, ...params }) => {
+  assertTicket(ticket_uuid)
+  return call('GET', `/tickets/${ticket_uuid}/duplicate-candidates`, undefined, params)
+})
+
+server.tool('list_ticket_escalation_executions', 'List escalation executions for a ticket.', { ticket_uuid: uuid.describe('Ticket UUID'), ...pagination }, async ({ ticket_uuid, ...params }) => {
+  assertTicket(ticket_uuid)
+  return call('GET', `/tickets/${ticket_uuid}/escalation-executions`, undefined, params)
+})
+
+server.tool('list_ticket_attachments', 'List ticket attachments metadata.', { ticket_uuid: uuid.describe('Ticket UUID'), ...pagination }, async ({ ticket_uuid, ...params }) => {
+  assertTicket(ticket_uuid)
+  return call('GET', `/tickets/${ticket_uuid}/attachments`, undefined, params)
+})
+
+server.tool(
+  'delete_ticket_attachment',
+  'Delete a ticket attachment. Destructive: requires confirmation.',
+  { ticket_uuid: uuid.describe('Ticket UUID'), attachment_uuid: uuid.describe('Attachment UUID'), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+  async ({ ticket_uuid, attachment_uuid, confirm }) => {
+    assertTicket(ticket_uuid)
+    assertUuid(attachment_uuid, 'ticket attachment uuid')
+    requireConfirmation(confirm, 'deleting a ticket attachment')
+    return call('DELETE', `/tickets/${ticket_uuid}/attachments/${attachment_uuid}`)
+  },
+)
+
+server.tool(
+  'retry_ticket_reply',
+  'Retry a failed ticket reply. Requires confirmation.',
+  { ticket_uuid: uuid.describe('Ticket UUID'), reply_uuid: uuid.describe('Reply UUID'), data: jsonRecord.optional(), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+  async ({ ticket_uuid, reply_uuid, data, confirm }) => {
+    assertTicket(ticket_uuid)
+    assertUuid(reply_uuid, 'ticket reply uuid')
+    requireConfirmation(confirm, 'retrying a ticket reply')
+    return call('POST', `/tickets/${ticket_uuid}/replies/${reply_uuid}/retry`, data ?? {})
+  },
+)
+
+for (const [toolName, method, suffix, actionLabel] of [
+  ['create_ticket_subtask', 'POST', 'subtasks', 'creating a ticket subtask'],
+  ['toggle_ticket_subtask', 'PATCH', 'subtasks/{child}/toggle', 'toggling a ticket subtask'],
+  ['delete_ticket_subtask', 'DELETE', 'subtasks/{child}', 'deleting a ticket subtask'],
+  ['update_ticket_time_entry', 'PATCH', 'time-entries/{child}', 'updating a ticket time entry'],
+  ['delete_ticket_time_entry', 'DELETE', 'time-entries/{child}', 'deleting a ticket time entry'],
+] as const) {
+  server.tool(
+    toolName,
+    `${actionLabel}. Requires confirmation.`,
+    {
+      ticket_uuid: uuid.describe('Ticket UUID'),
+      child_uuid: z.string().optional().describe('Subtask or time entry UUID when required'),
+      data: jsonRecord.optional().describe('Optional payload'),
+      confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+    },
+    async ({ ticket_uuid, child_uuid, data, confirm }) => {
+      assertTicket(ticket_uuid)
+      requireConfirmation(confirm, actionLabel)
+      let resolvedSuffix: string = suffix
+      if (resolvedSuffix.includes('{child}')) {
+        if (!child_uuid) throw new Error('child_uuid is required for this action')
+        assertUuid(child_uuid, 'child uuid')
+        resolvedSuffix = resolvedSuffix.replace('{child}', child_uuid)
+      }
+      return call(method, `/tickets/${ticket_uuid}/${resolvedSuffix}`, data ?? {})
+    },
+  )
+}
+
+server.tool(
+  'acknowledge_requester_response',
+  'Acknowledge requester response on a ticket. Requires confirmation.',
+  { ticket_uuid: uuid.describe('Ticket UUID'), data: jsonRecord.optional(), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+  async ({ ticket_uuid, data, confirm }) => {
+    assertTicket(ticket_uuid)
+    requireConfirmation(confirm, 'acknowledging requester response')
+    return call('POST', `/tickets/${ticket_uuid}/requester-response/acknowledge`, data ?? {})
+  },
+)
+
+server.tool('list_ticket_incident_updates', 'List incident updates for a ticket.', { ticket_uuid: uuid.describe('Ticket UUID'), ...pagination }, async ({ ticket_uuid, ...params }) => {
+  assertTicket(ticket_uuid)
+  return call('GET', `/tickets/${ticket_uuid}/incident-updates`, undefined, params)
+})
+
+server.tool(
+  'create_ticket_incident_update',
+  'Create an incident update. Requires confirmation.',
+  { ticket_uuid: uuid.describe('Ticket UUID'), data: jsonRecord.describe('Incident update payload'), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+  async ({ ticket_uuid, data, confirm }) => {
+    assertTicket(ticket_uuid)
+    requireConfirmation(confirm, 'creating an incident update')
+    return call('POST', `/tickets/${ticket_uuid}/incident-updates`, data)
+  },
+)
+
+server.tool('get_ticket_incident_report', 'Get incident report for a ticket.', { ticket_uuid: uuid.describe('Ticket UUID') }, async ({ ticket_uuid }) => {
+  assertTicket(ticket_uuid)
+  return call('GET', `/tickets/${ticket_uuid}/incident-report`)
+})
+
+server.tool('get_archived_ticket_incident_report', 'Get archived incident report for a ticket.', { ticket_uuid: uuid.describe('Ticket UUID') }, async ({ ticket_uuid }) => {
+  assertTicket(ticket_uuid)
+  return call('GET', `/tickets/${ticket_uuid}/incident-report/archived`)
+})
+
+for (const [toolName, method, segment, actionLabel] of [
+  ['archive_ticket_incident_report', 'POST', 'incident-report/archive', 'archiving an incident report'],
+  ['request_ticket_incident_report_signoff', 'POST', 'incident-report/request-signoff', 'requesting incident report signoff'],
+  ['link_ticket_incident_ci', 'POST', 'incident-ci', 'linking incident CI'],
+  ['link_ticket_incident_problem', 'POST', 'incident-problem', 'linking incident problem'],
+  ['link_ticket_incident_service_component', 'POST', 'incident-service-component', 'linking incident service component'],
+  ['update_ticket_incident_publication', 'PATCH', 'incident-publication', 'updating incident publication'],
+  ['update_ticket_incident_severity_override', 'PATCH', 'incident-severity-override', 'updating incident severity override'],
+  ['update_ticket_incident_closure_review', 'PATCH', 'incident-closure-review', 'updating incident closure review'],
+] as const) {
+  server.tool(
+    toolName,
+    `${actionLabel}. Requires confirmation.`,
+    { ticket_uuid: uuid.describe('Ticket UUID'), data: jsonRecord.optional().describe('Optional payload'), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+    async ({ ticket_uuid, data, confirm }) => {
+      assertTicket(ticket_uuid)
+      requireConfirmation(confirm, actionLabel)
+      return call(method, `/tickets/${ticket_uuid}/${segment}`, data ?? {})
+    },
+  )
+}
+
+server.tool('get_agent_status', 'Get Service Desk agent status.', { ...pagination }, async (params) => call('GET', '/agents/status', undefined, params))
+
+server.tool(
+  'update_agent_status',
+  'Update Service Desk agent status. Requires confirmation.',
+  { data: jsonRecord.describe('Agent status payload'), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+  async ({ data, confirm }) => {
+    requireConfirmation(confirm, 'updating agent status')
+    return call('PATCH', '/agents/status', data)
+  },
+)
+
+server.tool('admin_list_service_catalog', 'List service catalog administration view.', { ...pagination, search: z.string().optional() }, async (params) => call('GET', '/service-catalog/administration', undefined, params))
+
+server.tool('get_service_catalog_item', 'Get a service catalog item by UUID.', { item_uuid: uuid.describe('Service catalog item UUID') }, async ({ item_uuid }) => {
+  assertUuid(item_uuid, 'service catalog item uuid')
+  return call('GET', `/service-catalog/${item_uuid}`)
+})
+
+for (const [toolName, method, pathTemplate, actionLabel] of [
+  ['create_service_catalog_item', 'POST', '/service-catalog', 'creating a service catalog item'],
+  ['update_service_catalog_item', 'PATCH', '/service-catalog/{item}', 'updating a service catalog item'],
+  ['delete_service_catalog_item', 'DELETE', '/service-catalog/{item}', 'deleting a service catalog item'],
+  ['duplicate_service_catalog_item', 'POST', '/service-catalog/{item}/duplicate', 'duplicating a service catalog item'],
+  ['toggle_service_catalog_item', 'POST', '/service-catalog/{item}/toggle', 'toggling a service catalog item'],
+] as const) {
+  server.tool(
+    toolName,
+    `${actionLabel}. Requires confirmation.`,
+    { item_uuid: z.string().optional().describe('Service catalog item UUID when required'), data: jsonRecord.optional(), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+    async ({ item_uuid, data, confirm }) => {
+      requireConfirmation(confirm, actionLabel)
+      let path: string = pathTemplate
+      if (path.includes('{item}')) {
+        if (!item_uuid) throw new Error('item_uuid is required for this action')
+        assertUuid(item_uuid, 'service catalog item uuid')
+        path = path.replace('{item}', item_uuid)
+      }
+      return call(method, path, data ?? {})
+    },
+  )
+}
+
+registerCrudTools('ticket_reply_templates', '/ticket-reply-templates', 'ticket reply template')
+registerCrudTools('ticket_automations', '/ticket-automations', 'ticket automation')
+
+for (const [baseName, path, label] of [
+  ['ticket_category', '/ticket-categories', 'ticket category'],
+  ['ticket_tag', '/ticket-tags', 'ticket tag'],
+  ['sla_policy', '/sla-policies', 'SLA policy'],
+] as const) {
+  server.tool(
+    `create_${baseName}`,
+    `Create a ${label}. Requires confirmation.`,
+    { data: jsonRecord.describe('Create payload'), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+    async ({ data, confirm }) => {
+      requireConfirmation(confirm, `creating ${label}`)
+      return call('POST', path, data)
+    },
+  )
+  server.tool(
+    `update_${baseName}`,
+    `Update a ${label}. Requires confirmation.`,
+    { item_uuid: uuid.describe(`${label} UUID`), data: jsonRecord.describe('Update payload'), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+    async ({ item_uuid, data, confirm }) => {
+      assertUuid(item_uuid, `${label} uuid`)
+      requireConfirmation(confirm, `updating ${label}`)
+      return call('PATCH', `${path}/${item_uuid}`, data)
+    },
+  )
+  server.tool(
+    `delete_${baseName}`,
+    `Delete a ${label}. Destructive: requires confirmation.`,
+    { item_uuid: uuid.describe(`${label} UUID`), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+    async ({ item_uuid, confirm }) => {
+      assertUuid(item_uuid, `${label} uuid`)
+      requireConfirmation(confirm, `deleting ${label}`)
+      return call('DELETE', `${path}/${item_uuid}`)
+    },
+  )
+}
+
+server.tool('list_sla_policies', 'List SLA policies.', { ...pagination, search: z.string().optional() }, async (params) => call('GET', '/sla-policies', undefined, params))
+server.tool('list_escalation_policies', 'List escalation policies.', { ...pagination, search: z.string().optional() }, async (params) => call('GET', '/escalation-policies', undefined, params))
+server.tool(
+  'create_escalation_policy',
+  'Create an escalation policy. Requires confirmation.',
+  { data: jsonRecord.describe('Create payload'), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+  async ({ data, confirm }) => {
+    requireConfirmation(confirm, 'creating escalation policy')
+    return call('POST', '/escalation-policies', data)
+  },
+)
+server.tool(
+  'update_escalation_policy',
+  'Update an escalation policy. Requires confirmation.',
+  { policy_uuid: uuid.describe('Escalation policy UUID'), data: jsonRecord.describe('Update payload'), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+  async ({ policy_uuid, data, confirm }) => {
+    assertUuid(policy_uuid, 'escalation policy uuid')
+    requireConfirmation(confirm, 'updating escalation policy')
+    return call('PATCH', `/escalation-policies/${policy_uuid}`, data)
+  },
+)
+
+server.tool(
+  'reorder_ticket_automations',
+  'Reorder ticket automations. Requires confirmation.',
+  { data: jsonRecord.describe('Reorder payload'), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+  async ({ data, confirm }) => {
+    requireConfirmation(confirm, 'reordering ticket automations')
+    return call('POST', '/ticket-automations/reorder', data)
+  },
+)
+
+server.tool('list_ticket_automation_executions', 'List executions for a ticket automation.', { automation_uuid: uuid.describe('Ticket automation UUID'), ...pagination }, async ({ automation_uuid, ...params }) => {
+  assertUuid(automation_uuid, 'ticket automation uuid')
+  return call('GET', `/ticket-automations/${automation_uuid}/executions`, undefined, params)
+})
+
+for (const [toolName, segment, actionLabel] of [
+  ['duplicate_ticket_automation', 'duplicate', 'duplicating ticket automation'],
+  ['toggle_ticket_automation', 'toggle', 'toggling ticket automation'],
+] as const) {
+  server.tool(
+    toolName,
+    `${actionLabel}. Requires confirmation.`,
+    { automation_uuid: uuid.describe('Ticket automation UUID'), data: jsonRecord.optional(), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
+    async ({ automation_uuid, data, confirm }) => {
+      assertUuid(automation_uuid, 'ticket automation uuid')
+      requireConfirmation(confirm, actionLabel)
+      return call('POST', `/ticket-automations/${automation_uuid}/${segment}`, data ?? {})
+    },
+  )
+}
+
 registerCrudTools('clients', '/clients', 'client')
 registerCrudTools('contacts', '/contacts', 'contact')
 registerCrudTools('deals', '/deals', 'deal')
