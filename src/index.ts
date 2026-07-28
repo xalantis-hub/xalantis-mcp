@@ -428,6 +428,23 @@ server.tool(
 )
 
 server.tool(
+  'toggle_ticket_tag',
+  'Attach or detach a tag on a ticket. Requires confirmation.',
+  {
+    ticket_uuid: uuid.describe('Ticket UUID'),
+    tag_uuid: uuid.describe('Ticket tag UUID'),
+    data: jsonRecord.optional().describe('Optional payload'),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ ticket_uuid, tag_uuid, data, confirm }) => {
+    assertTicket(ticket_uuid)
+    assertUuid(tag_uuid, 'ticket tag uuid')
+    requireConfirmation(confirm, 'toggling a ticket tag')
+    return call('POST', `/tickets/${ticket_uuid}/tags/${tag_uuid}/toggle`, data ?? {})
+  },
+)
+
+server.tool(
   'list_sla_breaches',
   'List SLA breaches.',
   { ...pagination, status: z.string().optional() },
