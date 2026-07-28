@@ -128,6 +128,20 @@ server.tool(
 )
 
 server.tool(
+  'delete_ticket',
+  'Delete a ticket. Destructive: requires explicit confirmation.',
+  {
+    uuid: uuid.describe('Ticket UUID'),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ uuid, confirm }) => {
+    assertTicket(uuid)
+    requireConfirmation(confirm, 'deleting a ticket')
+    return call('DELETE', `/tickets/${uuid}`)
+  },
+)
+
+server.tool(
   'get_ticket_metrics',
   'Get support ticket metrics.',
   {
