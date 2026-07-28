@@ -70,3 +70,51 @@ export async function apiRequest(
 
   return json
 }
+
+export async function apiRawRequest(
+  apiKey: string,
+  method: string,
+  path: string,
+  body?: BodyInit,
+  params?: Record<string, unknown>,
+  headers?: Record<string, string>,
+): Promise<Response> {
+  const url = new URL(`${BASE_URL}${path}`)
+
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null) {
+        url.searchParams.set(key, String(value))
+      }
+    }
+  }
+
+  const response = await fetch(url.toString(), {
+    method,
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Accept': headers?.Accept ?? 'application/json',
+      ...headers,
+    },
+    body,
+  })
+
+  if (!response.ok) {
+    let message = `Request failed (HTTP ${response.status})`
+    let code = 'UNKNOWN_ERROR'
+    let details: Record<string, string[]> | undefined
+
+    try {
+      const json = await response.json() as { error?: { code?: string; message?: string; details?: Record<string, string[]> } }
+      message = json.error?.message ?? message
+      code = json.error?.code ?? code
+      details = json.error?.details
+    } catch {
+      // Non-JSON download/upload errors keep the generic HTTP message.
+    }
+
+    throw new ApiError(message, code, response.status, details)
+  }
+
+  return response
+}

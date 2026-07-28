@@ -2,8 +2,10 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { readFile, writeFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 import { z } from 'zod'
-import { apiRequest, assertUuid, ApiError } from './api.js'
+import { apiRequest, apiRawRequest, assertUuid, ApiError } from './api.js'
 
 const API_KEY = process.env.XALANTIS_API_KEY || ''
 
@@ -49,6 +51,31 @@ async function call(method: string, path: string, body?: unknown, params?: Recor
       return error(`Validation failed: ${JSON.stringify(e.details)}`)
     }
 
+    return error(e instanceof Error ? e.message : 'Unknown error')
+  }
+}
+
+async function downloadFile(path: string, outputPath?: string): Promise<ToolResult> {
+  try {
+    const response = await apiRawRequest(API_KEY, 'GET', path, undefined, undefined, { Accept: '*/*' })
+    const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
+    const disposition = response.headers.get('content-disposition') ?? ''
+    const filename = disposition.match(/filename=\"?([^\";]+)\"?/i)?.[1] ?? null
+    const bytes = Buffer.from(await response.arrayBuffer())
+
+    if (outputPath) {
+      await writeFile(outputPath, bytes)
+      return text({ success: true, output_path: outputPath, filename, content_type: contentType, bytes: bytes.length })
+    }
+
+    return text({
+      success: true,
+      filename,
+      content_type: contentType,
+      bytes: bytes.length,
+      base64: bytes.toString('base64'),
+    })
+  } catch (e) {
     return error(e instanceof Error ? e.message : 'Unknown error')
   }
 }
@@ -549,6 +576,21 @@ server.tool(
 server.tool('list_ticket_reports', 'List generated ticket reports.', { ...pagination }, async (params) => call('GET', '/tickets/reports', undefined, params))
 
 server.tool(
+  'download_ticket_report',
+  'Download a generated ticket report. Returns base64 unless output_path is provided.',
+  {
+    report_uuid: uuid.describe('Ticket report UUID'),
+    output_path: z.string().optional().describe('Optional local output path where the file should be written'),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation because reports may contain sensitive data'),
+  },
+  async ({ report_uuid, output_path, confirm }) => {
+    assertUuid(report_uuid, 'ticket report uuid')
+    requireConfirmation(confirm, 'downloading a ticket report')
+    return downloadFile(`/tickets/reports/${report_uuid}/download`, output_path)
+  },
+)
+
+server.tool(
   'create_ticket_report',
   'Create a ticket report. Requires confirmation because it may process/export sensitive data.',
   { data: jsonRecord.describe('Report payload'), confirm: z.boolean().describe('Must be true after explicit user confirmation') },
@@ -602,6 +644,54 @@ server.tool('list_ticket_attachments', 'List ticket attachments metadata.', { ti
   assertTicket(ticket_uuid)
   return call('GET', `/tickets/${ticket_uuid}/attachments`, undefined, params)
 })
+
+server.tool(
+  'upload_ticket_attachment',
+  'Upload a local file as a ticket attachment. Requires confirmation.',
+  {
+    ticket_uuid: uuid.describe('Ticket UUID'),
+    file_path: z.string().min(1).describe('Local file path to upload'),
+    field_name: z.string().optional().describe('Multipart field name, defaults to file'),
+    data: jsonRecord.optional().describe('Optional additional multipart fields'),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ ticket_uuid, file_path, field_name, data, confirm }) => {
+    try {
+      assertTicket(ticket_uuid)
+      requireConfirmation(confirm, 'uploading a ticket attachment')
+      const form = new FormData()
+      form.append(field_name ?? 'file', new Blob([await readFile(file_path)]), basename(file_path))
+
+      for (const [key, value] of Object.entries(data ?? {})) {
+        if (value !== undefined && value !== null) {
+          form.append(key, typeof value === 'string' ? value : JSON.stringify(value))
+        }
+      }
+
+      const response = await apiRawRequest(API_KEY, 'POST', `/tickets/${ticket_uuid}/attachments`, form)
+      return text(await response.json())
+    } catch (e) {
+      return error(e instanceof Error ? e.message : 'Unknown error')
+    }
+  },
+)
+
+server.tool(
+  'download_ticket_attachment',
+  'Download a ticket attachment. Returns base64 unless output_path is provided.',
+  {
+    ticket_uuid: uuid.describe('Ticket UUID'),
+    attachment_uuid: uuid.describe('Attachment UUID'),
+    output_path: z.string().optional().describe('Optional local output path where the file should be written'),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation because attachments may contain sensitive data'),
+  },
+  async ({ ticket_uuid, attachment_uuid, output_path, confirm }) => {
+    assertTicket(ticket_uuid)
+    assertUuid(attachment_uuid, 'ticket attachment uuid')
+    requireConfirmation(confirm, 'downloading a ticket attachment')
+    return downloadFile(`/tickets/${ticket_uuid}/attachments/${attachment_uuid}/download`, output_path)
+  },
+)
 
 server.tool(
   'delete_ticket_attachment',
