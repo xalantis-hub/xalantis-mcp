@@ -1,6 +1,6 @@
 {
   "name": "@xalantis/mcp-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for Xalantis — manage support tickets from Claude, Cursor, and other AI tools",
   "type": "module",
   "bin": {
@@ -26,6 +26,6 @@
     "typescript": "^5.7.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }
