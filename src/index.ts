@@ -42,9 +42,15 @@ function requireConfirmation(confirm: boolean | undefined, action: string): void
   }
 }
 
-async function call(method: string, path: string, body?: unknown, params?: Record<string, unknown>): Promise<ToolResult> {
+async function call(
+  method: string,
+  path: string,
+  body?: unknown,
+  params?: Record<string, unknown>,
+  headers?: Record<string, string>,
+): Promise<ToolResult> {
   try {
-    const result = await apiRequest(API_KEY, method, path, body, params)
+    const result = await apiRequest(API_KEY, method, path, body, params, headers)
     return text(result)
   } catch (e) {
     if (e instanceof ApiError && e.details) {
@@ -1005,6 +1011,112 @@ server.tool(
   'Get a knowledge article by identifier or slug.',
   { identifier: z.string().min(1).describe('Article identifier or slug') },
   async ({ identifier }) => call('GET', `/knowledge/${encodeURIComponent(identifier)}`),
+)
+
+server.tool(
+  'get_knowledge_taxonomy',
+  'Get UUID-based categories, products and labels accepted by Knowledge article writes.',
+  {},
+  async () => call('GET', '/knowledge/taxonomy'),
+)
+
+server.tool(
+  'list_managed_knowledge_articles',
+  'List internal Knowledge articles visible to the configured integration actor.',
+  {
+    status: z.enum(['draft', 'in_review', 'published', 'archived']).optional(),
+    category_uuid: uuid.optional().describe('Category UUID'),
+    product_uuid: uuid.optional().describe('Product UUID'),
+    locale: z.string().optional(),
+    search: z.string().min(2).optional(),
+    ...pagination,
+  },
+  async (params) => call('GET', '/knowledge/articles', undefined, params),
+)
+
+server.tool(
+  'get_managed_knowledge_article',
+  'Get an internal Knowledge article by UUID.',
+  { article_uuid: uuid.describe('Knowledge article UUID') },
+  async ({ article_uuid }) => {
+    assertUuid(article_uuid, 'knowledge article uuid')
+    return call('GET', `/knowledge/articles/${article_uuid}`)
+  },
+)
+
+server.tool(
+  'create_knowledge_article',
+  'Create an internal Knowledge draft. Requires explicit confirmation and a stable idempotency key.',
+  {
+    data: jsonRecord.describe('Article payload using taxonomy UUIDs; status and visibility are not accepted'),
+    idempotency_key: z.string().min(1).max(255).describe('Reuse this key only when retrying the exact same write'),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ data, idempotency_key, confirm }) => {
+    requireConfirmation(confirm, 'creating a Knowledge article')
+    return call('POST', '/knowledge/articles', data, undefined, { 'Idempotency-Key': idempotency_key })
+  },
+)
+
+server.tool(
+  'update_knowledge_article',
+  'Update a draft or stage a revision for a published article. Requires explicit confirmation.',
+  {
+    article_uuid: uuid.describe('Knowledge article UUID'),
+    data: jsonRecord.describe('Fields to update; status and visibility are not accepted'),
+    idempotency_key: z.string().min(1).max(255),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ article_uuid, data, idempotency_key, confirm }) => {
+    assertUuid(article_uuid, 'knowledge article uuid')
+    requireConfirmation(confirm, 'updating a Knowledge article')
+    return call('PATCH', `/knowledge/articles/${article_uuid}`, data, undefined, { 'Idempotency-Key': idempotency_key })
+  },
+)
+
+server.tool(
+  'submit_knowledge_article_for_review',
+  'Submit a Knowledge draft or pending revision to editorial review. Requires explicit confirmation.',
+  {
+    article_uuid: uuid.describe('Knowledge article UUID'),
+    idempotency_key: z.string().min(1).max(255),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ article_uuid, idempotency_key, confirm }) => {
+    assertUuid(article_uuid, 'knowledge article uuid')
+    requireConfirmation(confirm, 'submitting a Knowledge article for review')
+    return call('POST', `/knowledge/articles/${article_uuid}/submit-for-review`, {}, undefined, { 'Idempotency-Key': idempotency_key })
+  },
+)
+
+server.tool(
+  'archive_knowledge_article',
+  'Archive a Knowledge article while preserving its history. Requires explicit confirmation.',
+  {
+    article_uuid: uuid.describe('Knowledge article UUID'),
+    idempotency_key: z.string().min(1).max(255),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ article_uuid, idempotency_key, confirm }) => {
+    assertUuid(article_uuid, 'knowledge article uuid')
+    requireConfirmation(confirm, 'archiving a Knowledge article')
+    return call('POST', `/knowledge/articles/${article_uuid}/archive`, {}, undefined, { 'Idempotency-Key': idempotency_key })
+  },
+)
+
+server.tool(
+  'delete_knowledge_article',
+  'Soft-delete a Knowledge article. Destructive: requires explicit confirmation and the dedicated delete scope.',
+  {
+    article_uuid: uuid.describe('Knowledge article UUID'),
+    idempotency_key: z.string().min(1).max(255),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ article_uuid, idempotency_key, confirm }) => {
+    assertUuid(article_uuid, 'knowledge article uuid')
+    requireConfirmation(confirm, 'deleting a Knowledge article')
+    return call('DELETE', `/knowledge/articles/${article_uuid}`, undefined, undefined, { 'Idempotency-Key': idempotency_key })
+  },
 )
 
 server.tool(

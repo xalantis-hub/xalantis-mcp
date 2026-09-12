@@ -113,6 +113,8 @@ Once connected, an MCP-compatible assistant can answer or act on prompts such as
 - “List open urgent tickets and summarize the oldest ones.”
 - “Find client Acme and show related contacts.”
 - “Search the knowledge base for SLA configuration.”
+- “Create this Knowledge draft and submit it for editorial review after I confirm.”
+- “Update this published Knowledge article; keep the live version unchanged until approval.”
 - “Create a ticket for this incident after I confirm.”
 - “Add an internal note to this ticket.”
 - “Show contract obligations due this month.”

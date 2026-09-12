@@ -30,6 +30,7 @@ export async function apiRequest(
   path: string,
   body?: unknown,
   params?: Record<string, unknown>,
+  extraHeaders?: Record<string, string>,
 ): Promise<unknown> {
   const url = new URL(`${BASE_URL}${path}`)
 
@@ -47,9 +48,14 @@ export async function apiRequest(
       'Authorization': `Bearer ${apiKey}`,
       'Accept': 'application/json',
       'Content-Type': 'application/json',
+      ...extraHeaders,
     },
     body: body ? JSON.stringify(body) : undefined,
   })
+
+  if (response.status === 204) {
+    return { success: true, data: null, message: null }
+  }
 
   let json: unknown
   try {
