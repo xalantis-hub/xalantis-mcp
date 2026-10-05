@@ -17,7 +17,8 @@
     "start": "node build/index.js",
     "lint": "tsc --noEmit",
     "test": "tsc && node --test test/*.test.mjs",
-    "sync-openapi": "node scripts/sync-openapi.mjs"
+    "sync-openapi": "node scripts/sync-openapi.mjs",
+    "prepublishOnly": "npm test"
   },
   "keywords": [
     "xalantis",
