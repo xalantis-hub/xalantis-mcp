@@ -1,20 +1,37 @@
 {
   "name": "@xalantis/mcp-server",
-  "version": "0.2.0",
-  "description": "MCP server for Xalantis — manage support tickets from Claude, Cursor, and other AI tools",
+  "version": "0.3.0",
+  "description": "MCP server for Xalantis — tickets, CRM, contracts, projects and the whole public API from Claude, Cursor, and other AI tools",
   "type": "module",
   "bin": {
     "xalantis-mcp": "./build/index.js"
   },
   "main": "build/index.js",
-  "files": ["build"],
+  "files": [
+    "build",
+    "openapi"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node build/index.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "tsc && node --test test/*.test.mjs",
+    "sync-openapi": "node scripts/sync-openapi.mjs",
+    "prepublishOnly": "npm test"
   },
-  "keywords": ["xalantis", "mcp", "model-context-protocol", "tickets", "support", "ai"],
+  "keywords": [
+    "xalantis",
+    "mcp",
+    "model-context-protocol",
+    "tickets",
+    "support",
+    "ai",
+    "projects",
+    "crm",
+    "contracts",
+    "openapi"
+  ],
   "author": "WAZMINE <dev@xalantis.com>",
   "license": "MIT",
   "dependencies": {

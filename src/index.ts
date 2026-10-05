@@ -2,10 +2,15 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { readFileSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { z } from 'zod'
 import { apiRequest, apiRawRequest, assertUuid, ApiError } from './api.js'
+import { registerGenericTools } from './generic.js'
+import { Catalog } from './openapi.js'
+import { registerProjectTools } from './projects.js'
+import { error, requireConfirmation, text, type ToolResult } from './result.js'
 
 const API_KEY = process.env.XALANTIS_API_KEY || ''
 
@@ -14,12 +19,18 @@ if (!API_KEY) {
   process.exit(1)
 }
 
-const server = new McpServer({
-  name: 'xalantis',
-  version: '0.1.0',
-})
+const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
+const catalog = Catalog.load()
 
-type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: true }
+const server = new McpServer(
+  { name: 'xalantis', version },
+  {
+    instructions:
+      'Use the dedicated tools first (tickets, CRM, contracts, knowledge, projects…). ' +
+      `For any other Xalantis operation, chain search_operations, describe_operation, then read_operation (GET) or call_operation (writes); they cover the ${catalog.size} operations of the public API. ` +
+      'Write tools require confirm=true, set only after the user explicitly confirms.',
+  },
+)
 
 const uuid = z.string().describe('UUID')
 const jsonRecord = z.record(z.unknown())
@@ -28,23 +39,15 @@ const pagination = {
   per_page: z.number().int().min(1).max(100).optional().describe('Results per page'),
 }
 
-function text(data: unknown): ToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
-}
-
-function error(message: string): ToolResult {
-  return { content: [{ type: 'text', text: message }], isError: true }
-}
-
-function requireConfirmation(confirm: boolean | undefined, action: string): void {
-  if (confirm !== true) {
-    throw new Error(`Confirmation required before ${action}. Call this tool again with confirm=true after the user explicitly confirms.`)
-  }
-}
-
-async function call(method: string, path: string, body?: unknown, params?: Record<string, unknown>): Promise<ToolResult> {
+async function call(
+  method: string,
+  path: string,
+  body?: unknown,
+  params?: Record<string, unknown>,
+  headers?: Record<string, string>,
+): Promise<ToolResult> {
   try {
-    const result = await apiRequest(API_KEY, method, path, body, params)
+    const result = await apiRequest(API_KEY, method, path, body, params, headers)
     return text(result)
   } catch (e) {
     if (e instanceof ApiError && e.details) {
@@ -495,7 +498,7 @@ server.tool(
 
 // ─── CRM ───────────────────────────────────────────────────
 
-function registerCrudTools(prefix: string, path: string, label: string, allowDelete = true): void {
+function registerCrudTools(prefix: string, path: string, label: string, { allowDelete = true, hasShow = true } = {}): void {
   server.tool(
     `list_${prefix}`,
     `List ${label}.`,
@@ -503,15 +506,17 @@ function registerCrudTools(prefix: string, path: string, label: string, allowDel
     async (params) => call('GET', path, undefined, params),
   )
 
-  server.tool(
-    `get_${prefix.slice(0, -1)}`,
-    `Get one ${label} item by UUID.`,
-    { item_uuid: uuid.describe(`${label} UUID`) },
-    async ({ item_uuid }) => {
-      assertUuid(item_uuid, `${label} uuid`)
-      return call('GET', `${path}/${item_uuid}`)
-    },
-  )
+  if (hasShow) {
+    server.tool(
+      `get_${prefix.slice(0, -1)}`,
+      `Get one ${label} item by UUID.`,
+      { item_uuid: uuid.describe(`${label} UUID`) },
+      async ({ item_uuid }) => {
+        assertUuid(item_uuid, `${label} uuid`)
+        return call('GET', `${path}/${item_uuid}`)
+      },
+    )
+  }
 
   server.tool(
     `create_${prefix.slice(0, -1)}`,
@@ -849,8 +854,9 @@ for (const [toolName, method, pathTemplate, actionLabel] of [
   )
 }
 
-registerCrudTools('ticket_reply_templates', '/ticket-reply-templates', 'ticket reply template')
-registerCrudTools('ticket_automations', '/ticket-automations', 'ticket automation')
+// The API has no show route for these two resources: list them instead.
+registerCrudTools('ticket_reply_templates', '/ticket-reply-templates', 'ticket reply template', { hasShow: false })
+registerCrudTools('ticket_automations', '/ticket-automations', 'ticket automation', { hasShow: false })
 
 for (const [baseName, path, label] of [
   ['ticket_category', '/ticket-categories', 'ticket category'],
@@ -1005,6 +1011,112 @@ server.tool(
   'Get a knowledge article by identifier or slug.',
   { identifier: z.string().min(1).describe('Article identifier or slug') },
   async ({ identifier }) => call('GET', `/knowledge/${encodeURIComponent(identifier)}`),
+)
+
+server.tool(
+  'get_knowledge_taxonomy',
+  'Get UUID-based categories, products and labels accepted by Knowledge article writes.',
+  {},
+  async () => call('GET', '/knowledge/taxonomy'),
+)
+
+server.tool(
+  'list_managed_knowledge_articles',
+  'List internal Knowledge articles visible to the configured integration actor.',
+  {
+    status: z.enum(['draft', 'in_review', 'published', 'archived']).optional(),
+    category_uuid: uuid.optional().describe('Category UUID'),
+    product_uuid: uuid.optional().describe('Product UUID'),
+    locale: z.string().optional(),
+    search: z.string().min(2).optional(),
+    ...pagination,
+  },
+  async (params) => call('GET', '/knowledge/articles', undefined, params),
+)
+
+server.tool(
+  'get_managed_knowledge_article',
+  'Get an internal Knowledge article by UUID.',
+  { article_uuid: uuid.describe('Knowledge article UUID') },
+  async ({ article_uuid }) => {
+    assertUuid(article_uuid, 'knowledge article uuid')
+    return call('GET', `/knowledge/articles/${article_uuid}`)
+  },
+)
+
+server.tool(
+  'create_knowledge_article',
+  'Create an internal Knowledge draft. Requires explicit confirmation and a stable idempotency key.',
+  {
+    data: jsonRecord.describe('Article payload using taxonomy UUIDs; status and visibility are not accepted'),
+    idempotency_key: z.string().min(1).max(255).describe('Reuse this key only when retrying the exact same write'),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ data, idempotency_key, confirm }) => {
+    requireConfirmation(confirm, 'creating a Knowledge article')
+    return call('POST', '/knowledge/articles', data, undefined, { 'Idempotency-Key': idempotency_key })
+  },
+)
+
+server.tool(
+  'update_knowledge_article',
+  'Update a draft or stage a revision for a published article. Requires explicit confirmation.',
+  {
+    article_uuid: uuid.describe('Knowledge article UUID'),
+    data: jsonRecord.describe('Fields to update; status and visibility are not accepted'),
+    idempotency_key: z.string().min(1).max(255),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ article_uuid, data, idempotency_key, confirm }) => {
+    assertUuid(article_uuid, 'knowledge article uuid')
+    requireConfirmation(confirm, 'updating a Knowledge article')
+    return call('PATCH', `/knowledge/articles/${article_uuid}`, data, undefined, { 'Idempotency-Key': idempotency_key })
+  },
+)
+
+server.tool(
+  'submit_knowledge_article_for_review',
+  'Submit a Knowledge draft or pending revision to editorial review. Requires explicit confirmation.',
+  {
+    article_uuid: uuid.describe('Knowledge article UUID'),
+    idempotency_key: z.string().min(1).max(255),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ article_uuid, idempotency_key, confirm }) => {
+    assertUuid(article_uuid, 'knowledge article uuid')
+    requireConfirmation(confirm, 'submitting a Knowledge article for review')
+    return call('POST', `/knowledge/articles/${article_uuid}/submit-for-review`, {}, undefined, { 'Idempotency-Key': idempotency_key })
+  },
+)
+
+server.tool(
+  'archive_knowledge_article',
+  'Archive a Knowledge article while preserving its history. Requires explicit confirmation.',
+  {
+    article_uuid: uuid.describe('Knowledge article UUID'),
+    idempotency_key: z.string().min(1).max(255),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ article_uuid, idempotency_key, confirm }) => {
+    assertUuid(article_uuid, 'knowledge article uuid')
+    requireConfirmation(confirm, 'archiving a Knowledge article')
+    return call('POST', `/knowledge/articles/${article_uuid}/archive`, {}, undefined, { 'Idempotency-Key': idempotency_key })
+  },
+)
+
+server.tool(
+  'delete_knowledge_article',
+  'Soft-delete a Knowledge article. Destructive: requires explicit confirmation and the dedicated delete scope.',
+  {
+    article_uuid: uuid.describe('Knowledge article UUID'),
+    idempotency_key: z.string().min(1).max(255),
+    confirm: z.boolean().describe('Must be true after explicit user confirmation'),
+  },
+  async ({ article_uuid, idempotency_key, confirm }) => {
+    assertUuid(article_uuid, 'knowledge article uuid')
+    requireConfirmation(confirm, 'deleting a Knowledge article')
+    return call('DELETE', `/knowledge/articles/${article_uuid}`, undefined, undefined, { 'Idempotency-Key': idempotency_key })
+  },
 )
 
 server.tool(
@@ -1335,6 +1447,11 @@ for (const [toolName, pathSegment, childLabel, actionLabel] of [
     },
   )
 }
+
+// ─── Projects and generic API access ───────────────────────
+
+registerProjectTools(server, API_KEY)
+registerGenericTools(server, API_KEY, catalog)
 
 // ─── Start server ──────────────────────────────────────────
 
