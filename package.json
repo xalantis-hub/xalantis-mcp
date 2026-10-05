@@ -7,14 +7,30 @@
     "xalantis-mcp": "./build/index.js"
   },
   "main": "build/index.js",
-  "files": ["build"],
+  "files": [
+    "build",
+    "openapi"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node build/index.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "tsc && node --test test/*.test.mjs",
+    "sync-openapi": "node scripts/sync-openapi.mjs"
   },
-  "keywords": ["xalantis", "mcp", "model-context-protocol", "tickets", "support", "ai"],
+  "keywords": [
+    "xalantis",
+    "mcp",
+    "model-context-protocol",
+    "tickets",
+    "support",
+    "ai",
+    "projects",
+    "crm",
+    "contracts",
+    "openapi"
+  ],
   "author": "WAZMINE <dev@xalantis.com>",
   "license": "MIT",
   "dependencies": {

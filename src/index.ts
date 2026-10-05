@@ -2,10 +2,15 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { readFileSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { z } from 'zod'
 import { apiRequest, apiRawRequest, assertUuid, ApiError } from './api.js'
+import { registerGenericTools } from './generic.js'
+import { Catalog } from './openapi.js'
+import { registerProjectTools } from './projects.js'
+import { error, requireConfirmation, text, type ToolResult } from './result.js'
 
 const API_KEY = process.env.XALANTIS_API_KEY || ''
 
@@ -14,32 +19,24 @@ if (!API_KEY) {
   process.exit(1)
 }
 
-const server = new McpServer({
-  name: 'xalantis',
-  version: '0.1.0',
-})
+const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
+const catalog = Catalog.load()
 
-type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: true }
+const server = new McpServer(
+  { name: 'xalantis', version },
+  {
+    instructions:
+      'Use the dedicated tools first (tickets, CRM, contracts, knowledge, projects…). ' +
+      `For any other Xalantis operation, chain search_operations, describe_operation, then read_operation (GET) or call_operation (writes); they cover the ${catalog.size} operations of the public API. ` +
+      'Write tools require confirm=true, set only after the user explicitly confirms.',
+  },
+)
 
 const uuid = z.string().describe('UUID')
 const jsonRecord = z.record(z.unknown())
 const pagination = {
   page: z.number().int().min(1).optional().describe('Page number'),
   per_page: z.number().int().min(1).max(100).optional().describe('Results per page'),
-}
-
-function text(data: unknown): ToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
-}
-
-function error(message: string): ToolResult {
-  return { content: [{ type: 'text', text: message }], isError: true }
-}
-
-function requireConfirmation(confirm: boolean | undefined, action: string): void {
-  if (confirm !== true) {
-    throw new Error(`Confirmation required before ${action}. Call this tool again with confirm=true after the user explicitly confirms.`)
-  }
 }
 
 async function call(
@@ -1450,6 +1447,11 @@ for (const [toolName, pathSegment, childLabel, actionLabel] of [
     },
   )
 }
+
+// ─── Projects and generic API access ───────────────────────
+
+registerProjectTools(server, API_KEY)
+registerGenericTools(server, API_KEY, catalog)
 
 // ─── Start server ──────────────────────────────────────────
 
