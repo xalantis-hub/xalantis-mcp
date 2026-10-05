@@ -501,7 +501,7 @@ server.tool(
 
 // ─── CRM ───────────────────────────────────────────────────
 
-function registerCrudTools(prefix: string, path: string, label: string, allowDelete = true): void {
+function registerCrudTools(prefix: string, path: string, label: string, { allowDelete = true, hasShow = true } = {}): void {
   server.tool(
     `list_${prefix}`,
     `List ${label}.`,
@@ -509,15 +509,17 @@ function registerCrudTools(prefix: string, path: string, label: string, allowDel
     async (params) => call('GET', path, undefined, params),
   )
 
-  server.tool(
-    `get_${prefix.slice(0, -1)}`,
-    `Get one ${label} item by UUID.`,
-    { item_uuid: uuid.describe(`${label} UUID`) },
-    async ({ item_uuid }) => {
-      assertUuid(item_uuid, `${label} uuid`)
-      return call('GET', `${path}/${item_uuid}`)
-    },
-  )
+  if (hasShow) {
+    server.tool(
+      `get_${prefix.slice(0, -1)}`,
+      `Get one ${label} item by UUID.`,
+      { item_uuid: uuid.describe(`${label} UUID`) },
+      async ({ item_uuid }) => {
+        assertUuid(item_uuid, `${label} uuid`)
+        return call('GET', `${path}/${item_uuid}`)
+      },
+    )
+  }
 
   server.tool(
     `create_${prefix.slice(0, -1)}`,
@@ -855,8 +857,9 @@ for (const [toolName, method, pathTemplate, actionLabel] of [
   )
 }
 
-registerCrudTools('ticket_reply_templates', '/ticket-reply-templates', 'ticket reply template')
-registerCrudTools('ticket_automations', '/ticket-automations', 'ticket automation')
+// The API has no show route for these two resources: list them instead.
+registerCrudTools('ticket_reply_templates', '/ticket-reply-templates', 'ticket reply template', { hasShow: false })
+registerCrudTools('ticket_automations', '/ticket-automations', 'ticket automation', { hasShow: false })
 
 for (const [baseName, path, label] of [
   ['ticket_category', '/ticket-categories', 'ticket category'],
