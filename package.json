@@ -1,7 +1,7 @@
 {
   "name": "@xalantis/mcp-server",
-  "version": "0.2.0",
-  "description": "MCP server for Xalantis — manage support tickets from Claude, Cursor, and other AI tools",
+  "version": "0.3.0",
+  "description": "MCP server for Xalantis — tickets, CRM, contracts, projects and the whole public API from Claude, Cursor, and other AI tools",
   "type": "module",
   "bin": {
     "xalantis-mcp": "./build/index.js"

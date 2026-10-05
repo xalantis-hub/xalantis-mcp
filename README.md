@@ -2,7 +2,7 @@
 
 MCP server for Xalantis. It lets MCP-compatible AI clients read and act on Xalantis business data through the public `/api/v1` API.
 
-Release `0.2.0` covers every current public `/api/v1` endpoint exposed by Xalantis at the time of release.
+Release `0.3.0` reaches all 323 operations of the public API (contract 2.11.0): dedicated tools for the most frequent tasks, and four generic tools driven by the bundled OpenAPI spec for everything else.
 
 ## Installation
 
@@ -58,12 +58,41 @@ Add to `.cursor/mcp.json`:
 
 ## Covered domains
 
+Dedicated tools:
+
 - Support / Service Desk: tickets, replies, attachments, reports, links, watchers, time entries, subtasks, incidents, service requests, SLA, automations, categories, tags, service catalog, agents.
 - CRM: clients, representatives, contacts, deals, pipelines.
-- Knowledge: articles, search, categories.
+- Knowledge: articles, search, categories, managed article drafts and reviews.
 - Billing: subscription and invoices.
 - Finance: invoices and expenses read-only APIs.
 - Contracts: contracts, comments, negotiations, obligations, approvals, signatures, clauses, requests, PDF designs, assets, assignments.
+- Projects: projects, statuses, tasks (list, read, create, update, transition) and task comments.
+
+Through the generic tools: every other operation of the public API, including the rest of Projects (sprints, milestones, lists, labels, custom fields, documents, time tracking, automations, analytics, exports, imports, client portal), compliance cases, signature envelopes, contract referentials and CRM imports.
+
+## Generic API access
+
+Four tools cover any operation of the public API without a dedicated tool:
+
+1. `search_operations`: finds operations by keywords (all required, accents ignored; summaries are in French), area and HTTP method. Without arguments, lists the areas.
+2. `describe_operation`: returns the path, query and header parameters, the body schema and the scopes of one operation.
+3. `read_operation`: runs a `GET` operation. Binary or CSV responses can be written to a local file with `save_to`.
+4. `call_operation`: runs a `POST`, `PUT`, `PATCH` or `DELETE` operation. Requires `confirm: true`; multipart uploads take local paths in `files`.
+
+```json
+{
+  "operation_id": "post_projects_By_projectUuid_tasks_By_taskUuid_time_entries",
+  "path_params": { "projectUuid": "project-uuid", "taskUuid": "task-uuid" },
+  "body": { "duration_minutes": 45, "description": "Review" },
+  "confirm": true
+}
+```
+
+The spec ships with the package (`openapi/xalantis-openapi.json`) and is refreshed at each release. Text responses above 200 KB are refused with a hint to paginate or use `save_to`.
+
+Every write sends an `Idempotency-Key`, generated for each call unless one is passed in `headers`: about 80 routes require it, and replaying the same key returns the first response without a second effect.
+
+Project routes require an API key linked to a member of the workspace (keys created from the Developers settings are) and the matching `projects:*` scopes.
 
 ## Confirmation model
 
@@ -120,12 +149,15 @@ Once connected, an MCP-compatible assistant can answer or act on prompts such as
 - “Show contract obligations due this month.”
 - “Submit this contract for approval after confirmation.”
 - “Download this ticket report to `/tmp/report.xlsx`.”
+- “List the overdue tasks of project MXA and move the ones I pick to Done.”
+- “Log 45 minutes on this task and show the sprint burndown.”
 
 ## Environment variables
 
 | Variable | Required | Description |
 |---|---|---|
 | `XALANTIS_API_KEY` | Yes | Tenant API key used for Xalantis `/api/v1` requests. |
+| `XALANTIS_BASE_URL` | No | Origin or API base of your Xalantis instance, e.g. `https://app.example.com`. Defaults to `https://xalantis.com/api/v1`. |
 
 ## Security notes
 
@@ -139,8 +171,11 @@ Once connected, an MCP-compatible assistant can answer or act on prompts such as
 ```bash
 npm ci
 npm run lint
-npm run build
+npm test            # compiles, then checks every tool against the bundled spec
+npm run sync-openapi -- path/to/openapi.json
 ```
+
+`npm test` calls every tool with a fake transport and fails if one targets a route the spec does not declare or sends a write without an `Idempotency-Key`. Run `sync-openapi` before a release (default source: the sibling `xalantis-application/storage/app/openapi.json`).
 
 ## License
 
