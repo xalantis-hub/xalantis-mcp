@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 — Unreleased
+
+### Added
+
+- `mcpName` (`io.github.xalantis-hub/xalantis-mcp`) and `server.json`, for the official MCP Registry.
+- `glama.json`, so the Glama listing can be claimed by its maintainers.
+- `homepage`, `repository` and `bugs` in `package.json`.
+
+No code change: tools and the bundled API contract are those of 0.3.0.
+
 ## 0.3.0 — 2026-10-05
 
 ### Added

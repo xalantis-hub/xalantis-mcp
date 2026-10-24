@@ -4,6 +4,10 @@ MCP server for Xalantis. It lets MCP-compatible AI clients read and act on Xalan
 
 Release `0.3.0` reaches all 323 operations of the public API (contract 2.11.0): dedicated tools for the most frequent tasks, and four generic tools driven by the bundled OpenAPI spec for everything else.
 
+## Registries
+
+Listed in the [official MCP Registry](https://registry.modelcontextprotocol.io) as `io.github.xalantis-hub/xalantis-mcp`, and on [Glama](https://glama.ai/mcp/servers/xalantis-hub/xalantis-mcp).
+
 ## Installation
 
 ```bash
