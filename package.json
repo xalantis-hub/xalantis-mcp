@@ -1,7 +1,16 @@
 {
   "name": "@xalantis/mcp-server",
-  "version": "0.3.0",
+  "mcpName": "io.github.xalantis-hub/xalantis-mcp",
+  "version": "0.3.1",
   "description": "MCP server for Xalantis — tickets, CRM, contracts, projects and the whole public API from Claude, Cursor, and other AI tools",
+  "homepage": "https://xalantis.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xalantis-hub/xalantis-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xalantis-hub/xalantis-mcp/issues"
+  },
   "type": "module",
   "bin": {
     "xalantis-mcp": "./build/index.js"
