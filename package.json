@@ -13,7 +13,7 @@
   },
   "type": "module",
   "bin": {
-    "xalantis-mcp": "./build/index.js"
+    "xalantis-mcp": "build/index.js"
   },
   "main": "build/index.js",
   "files": [
